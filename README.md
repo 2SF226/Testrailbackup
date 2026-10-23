@@ -1,67 +1,101 @@
-# TestRail selected-run backup to local C:\TR\Backup (v1 pilot)
+# TestRail Backup & Restore
 
-## Scope
+Interactive Python tools for backing up TestRail test runs and restoring their cases, execution results, and evidence into another project.
 
-Back up **individually selected Test Runs**, including associated test cases, case fields (including steps and expected results), suites, sections, run tests, all accessible result records, test/case/result attachments, and same-host `<img src>` evidence referenced by case rich text. Download failures are recorded in `manifest.json`; `complete: false` prevents restore.
+## Verified workflow
 
-**Important limitations**: This is a pilot, not a certified full-fidelity TestRail disaster-recovery solution. The restore recreates cases, sections, runs, results and most ordinary attachments, but **does not automatically relink embedded rich-text images**, reproduce original TestRail IDs, original authors/timestamps, test plans, statuses/configurations/custom-field definitions, or arbitrary third-party hosted media. TestRail project configurations and case field templates must be prepared in the destination account. Source case attachments and result attachments are attempted; test-level attachments are copied to the corresponding case where possible. Result status IDs are assumed compatible. Never use the restore on a populated destination project.
+The backup and restore workflow was tested on **Project 7 / Run 35 (Queue Management)** and restored to **Sandbox Project 8 / Run 40** on October 22, 2026.
 
-## Installation on Windows
+- 19 test cases and 19 execution statuses verified against the source.
+- 41 unique evidence files uploaded (the 71-row source index contained 30 repeated references).
+- The source evidence comprised CSV, MP4, JPG, and PNG attachments.
+- No restore errors were reported; the restored result evidence was visually checked in TestRail.
 
-1. The backup defaults to `C:\TR\Backup`. The script creates the folder automatically if it does not exist. Google Drive is not required.
-2. Put these files in your `TestRail-Puller` project folder.
-3. Run `py -m pip install -r requirements.txt`.
-4. Copy `.env.example` to `.env`, fill in source credentials, and keep `.env` out of Git (already commonly ignored).
-5. Verify TestRail API access is enabled and account permissions allow reading attachments.
+This verifies the tested run, **not** every TestRail project configuration or the ability to reproduce historical authors and timestamps.
 
-## Back up selected runs
+## Requirements
 
-Use **your actual TestRail project ID**, not the sample below.
+- Windows with Python 3.12 (tested), PowerShell, and access to the TestRail API.
+- Install dependencies from the repository directory:
 
-```powershell
-py testrail_backup_v1.py --project 7 --interactive
-```
+  ```powershell
+  py -m pip install -r requirements.txt
+  ```
 
-The script lists available open runs. `*` highlights names containing **Queue Management** or **Retail Entrance Traffic Count**. Enter the exact run IDs you want, separated by commas. It does **not** automatically select every run in either category.
+- Create a local `.env` file (never commit it):
 
-To select IDs directly:
+  ```dotenv
+  TESTRAIL_BASE_URL=https://your-site.testrail.io
+  TESTRAIL_EMAIL=your-email@example.com
+  TESTRAIL_PASSWORD=your-api-key-or-credential
+  ```
 
-```powershell
-py testrail_backup_v1.py --project 7 --runs 123,124
-```
+## Files
 
-To show closed runs too, add `--all-runs --interactive` (in v1, `--all-runs` alone backs up every run, so only use that if intended).
+| File | Purpose |
+| --- | --- |
+| `testrail_interactive.py` | Numbered menu for backups, restore previews, and restores |
+| `testrail_backup_final.py` | Download test metadata and evidence; verify local backups |
+| `testrail_restore_final.py` | Restore into a different project; preview is the default (verified V7) |
+| `testrail_common.py` | Shared TestRail API, JSON, and checksum helpers |
+| `requirements.txt` | Python dependencies |
 
-Afterward, check `manifest.json` for `"complete": true`, verify evidence files. A `true` value means no API/download errors were recorded; it is not proof that every embedded media reference was detected.
+Older development versions should be kept in `archive/` locally, not used for production restores.
 
-## Preview restoration
+## Interactive usage
 
-Restore into a **new, empty project** in a **different TestRail account**. Destination custom fields, templates, statuses, and other settings should match the source.
-
-```powershell
-py testrail_restore_v1.py --backup "C:\TR\Backup\TestRail_P7_2026-10-21_090000" --dest-project 9
-```
-
-No destination credentials or API calls are needed for preview.
-
-## Execute restoration
-
-Fill in destination credentials in `.env`, then run:
+From the repository directory:
 
 ```powershell
-py testrail_restore_v1.py --backup "C:\TR\Backup\TestRail_P7_2026-10-21_090000" --dest-project 9 --apply --confirm RESTORE
+py .\testrail_interactive.py
 ```
 
-**This creates records and cannot be automatically rolled back.** It refuses to start if it detects existing cases or runs. It writes `restore_mapping_project_9.json` with old-to-new IDs and warnings. If a restore fails partway, do **not** rerun on the same project: create a new empty project and inspect the mapping/error report.
+Select one of these menu actions:
 
-## Local backup and GitHub
+1. **Backup** — Choose a source project, then a test plan, single run, multiple runs, or all runs. Confirm with `Y`.
+2. **Restore preview** — Choose a backup and destination project; review the source test IDs, case IDs, titles, and evidence summary. Makes no TestRail changes.
+3. **Restore apply** — Choose the verified backup and destination, decide whether to restore results, and confirm with `Y`. This **creates new destination objects**; it is not an overwrite or synchronization operation.
 
-- Put backup data and MP4s in `C:\TR\Backup`, **not** the Git repository.
-- Commit only the scripts, `requirements.txt`, and README to GitHub.
-- Never commit `.env`, API tokens, private evidence, or restore mappings.
-- Keep a second independent backup copy on an external drive; Google Drive can be added later.
-- Large attachments may need substantial local disk space.
+The default backup directory is `C:\TR\Backup`.
 
-## Important security notes
+## Verify a backup
 
-Downloaded evidence may contain confidential information. Restrict Google Drive folder access and use encryption as required by your organization. The script only downloads embedded media hosted on the same TestRail domain and refuses off-domain image URLs.
+Use the exact directory printed by the backup script:
+
+```powershell
+py .\testrail_backup_final.py --verify "C:\TR\Backup\YOUR_BACKUP_FOLDER"
+```
+
+The verifier checks indexed evidence files against their recorded SHA256 checksums. A clean checksum report does not establish that the TestRail API exposed every possible result-level attachment.
+
+## Direct commands (optional)
+
+```powershell
+py .\testrail_backup_final.py --project 7 --runs 35
+py .\testrail_restore_final.py
+py .\testrail_restore_final.py --apply
+```
+
+Prefer the interactive launcher for normal use.
+
+## Safety and limitations
+
+- **Always preview first.** Validate the selected project, run, and case titles.
+- A restore creates a new suite/cases/run/results and attachments in a **different** destination project. It does not merge with an existing run.
+- The script validates restored run membership and statuses before proceeding with evidence uploads.
+- If a restore is interrupted, inspect the generated `restore_mapping_project_<id>.json` before attempting another restore; repeating Apply can create duplicates.
+- Some TestRail API attachment ownership information is incomplete. Verify that CSV, MP4, and screenshots appear in the intended result sections after restoration.
+- Historical authors/timestamps cannot be recreated exactly. Some rich-text images may require checking or relinking.
+- Do not add credentials, raw backup data, exported evidence, or `.env` to Git.
+
+## GitHub publishing
+
+```powershell
+git status
+git check-ignore .env
+git add README.md testrail_interactive.py testrail_backup_final.py testrail_restore_final.py testrail_common.py requirements.txt .gitignore
+git commit -m "Document verified TestRail backup and restore workflow"
+git push -u origin main
+```
+
+Review `git status` before committing and confirm secrets are excluded. If `.env` is already tracked, remove it from the Git index before committing (`git rm --cached .env`) and rotate any exposed credentials.

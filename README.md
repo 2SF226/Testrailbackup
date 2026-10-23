@@ -44,19 +44,77 @@ Older development versions should be kept in `archive/` locally, not used for pr
 
 ## Interactive usage
 
-From the repository directory:
+Open PowerShell in the repository folder:
 
 ```powershell
+cd "C:\Users\Niel\Documents\Github\Testrailbackup"
 py .\testrail_interactive.py
 ```
 
-Select one of these menu actions:
+The first menu is:
 
-1. **Backup** — Choose a source project, then a test plan, single run, multiple runs, or all runs. Confirm with `Y`.
-2. **Restore preview** — Choose a backup and destination project; review the source test IDs, case IDs, titles, and evidence summary. Makes no TestRail changes.
-3. **Restore apply** — Choose the verified backup and destination, decide whether to restore results, and confirm with `Y`. This **creates new destination objects**; it is not an overwrite or synchronization operation.
+```text
+TESTRAIL:
+  1. Backup
+  2. Restore preview
+  3. Restore apply
+Select number (blank cancels):
+```
 
-The default backup directory is `C:\TR\Backup`.
+### 1 — Backup
+
+Enter `1` and select the **source project by its displayed number** (the list numbers are menu positions, not TestRail project IDs). The next menu is:
+
+```text
+BACKUP SCOPE:
+  1. Test plan
+  2. Single test run
+  3. Multiple test runs
+  4. All runs
+Select number (blank cancels):
+```
+
+| Option | What it does | How to select | Best used for |
+| --- | --- | --- | --- |
+| **1. Test plan** | Lists test plans in the chosen project, then backs up all distinct runs belonging to the selected plan. | Choose the plan's **displayed number**. The program shows the included run IDs before confirmation. | Backing up a complete TestRail plan containing one or more runs. |
+| **2. Single test run** | Backs up one chosen run, including its selected cases, available execution results and indexed evidence. | Choose the run's **displayed number**, e.g. `1` may correspond to R35. | Testing a restore or archiving one completed run. |
+| **3. Multiple test runs** | Backs up several selected runs from the same source project into one backup folder. | Enter **menu numbers separated by commas**, e.g. `1,3,5`; these are not run IDs. | Backing up several related runs without selecting all runs. |
+| **4. All runs** | Backs up every run returned by the TestRail API for the selected project. | Select `4`; no individual run selection is required. | Backing up all available runs in one project. |
+
+**Important:** All four choices are *run-based*. `All runs` is not a guaranteed full-project snapshot of every case that is not in a run, and a plan backup is a collection of the plan's runs rather than a full-fidelity reconstruction of the TestRail plan container itself.
+
+After the selection, inspect **SELECTED RUNS** and confirm `Create backup? [Y/N]` with `Y`. The default destination is `C:\TR\Backup`, in a new timestamped directory. Keep the folder created by the script for verification and restoration.
+
+**Example — back up R35:**
+
+```text
+TESTRAIL: 1. Backup                  -> enter 1
+SOURCE PROJECTS: P7 ...          -> enter its displayed menu number
+BACKUP SCOPE: 2. Single test run -> enter 2
+TEST RUNS: R35 ...               -> enter its displayed menu number
+Create backup? [Y/N]:           -> enter Y
+```
+
+### 2 — Restore preview (recommended before every restore)
+
+Enter `2` from the first menu. Select the backup folder by number, then the **destination project** by number. Choose whether to include execution results (`Y` or `N`). The preview checks backup integrity, shows the source test IDs/case IDs/titles and evidence inventory, and **does not modify TestRail**.
+
+Verify that the intended source run and test titles are shown before choosing Apply.
+
+### 3 — Restore apply
+
+Enter `3` from the first menu, select the same verified backup and the correct destination project, and answer the execution-results question. Confirm with `Y` only if you intend to create new TestRail objects.
+
+The restore creates new suites/sections as needed, cases, run(s), results (if selected) and indexed evidence. It is **not** an in-place update, merge, or synchronization. The V7 restore validates destination run membership (case IDs and titles) and execution statuses before uploading evidence.
+
+**Do not run Apply twice on the same backup.** Review the mapping file and destination before any repeat attempt. Once completed, visually confirm that CSV, MP4, and screenshots appear in the corresponding result sections.
+
+### Menu tips
+
+- `1`, `2`, `3`, etc. are **positions in the current menu**, not necessarily TestRail IDs. Read the label next to each number.
+- For **Multiple test runs**, enter comma-separated menu positions (`1,3,5`).
+- Press **Enter on a blank selection** to cancel; confirmation prompts require `Y` or `N`.
+- Backup choices are based on the runs available to your authenticated TestRail account.
 
 ## Verify a backup
 

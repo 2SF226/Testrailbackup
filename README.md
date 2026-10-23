@@ -36,7 +36,7 @@ This verifies the tested run, **not** every TestRail project configuration or th
 | --- | --- |
 | `testrail_interactive.py` | Numbered menu for backups, restores, and copying a test run |
 | `testrail_copy_run.py` | Create a fresh run with the same cases, without prior execution results |
-| `testrail_backup_final.py` | Download test metadata and evidence; verify local backups |
+| `testrail_backup_final.py` | Backup V5: download test metadata and indexed evidence, classify unresolved images, verify local backups |
 | `testrail_restore_final.py` | Restore into a different project; preview is the default (verified V7) |
 | `testrail_common.py` | Shared TestRail API, JSON, and checksum helpers |
 | `requirements.txt` | Python dependencies |
@@ -143,6 +143,17 @@ The interactive menu's Option 4 enters the apply workflow but always requires a 
 - Press **Enter on a blank selection** to cancel; confirmation prompts require `Y` or `N`.
 - Backup choices are based on the runs available to your authenticated TestRail account.
 
+## Backup V5: image references and completeness
+
+The verified **Backup V5** distinguishes actual download/API failures from a small set of previously reviewed rich-text image references that are not visibly present in the **Steps** field. It **does not** download or reconstruct the missing images and **does not** remove their original HTML from the cases.
+
+- `backup_errors.csv` and `manifest.json` report download/API failures. A count of zero means **no reported download/API errors**, not that every reference was recovered.
+- `unresolved_embedded.json` records unresolved image references, including the original case IDs and URLs. These remain marked for manual review and the manifest can still report `complete: false`.
+- `evidence_index.json` contains the downloaded/indexed evidence files. It does **not** include unresolved images that have no downloaded bytes.
+- Result-level attachment completeness is still labeled **unverified** where the TestRail API does not expose the necessary information.
+
+**Verified V5 example (P4/R15, October 23, 2026):** 101 cases, 1 run, 291 indexed evidence entries, 0 download/API errors, and **5 unresolved image references requiring review**. Those five references were visually absent from the Steps fields during source review; images visible in Expected Result are a separate matter. This is an **integrity-verified but incomplete/review-required backup**.
+
 ## Verify a backup
 
 Use the exact directory printed by the backup script:
@@ -151,7 +162,9 @@ Use the exact directory printed by the backup script:
 py .\testrail_backup_final.py --verify "C:\TR\Backup\YOUR_BACKUP_FOLDER"
 ```
 
-The verifier checks indexed evidence files against their recorded SHA256 checksums. A clean checksum report does not establish that the TestRail API exposed every possible result-level attachment.
+The verifier checks indexed evidence files against their recorded SHA256 checksums. For V5, verification also reports unresolved embedded-reference counts and errors recorded in the manifest. **SHA256 success verifies indexed files only**; it does not verify or recover unresolved images, nor prove all result-level attachments were exposed by the TestRail API.
+
+The verified P4/R15 V5 backup reported `Files checked: 291 | Integrity errors: 0`, `Unresolved embedded references requiring review: 5`, and `Download/API errors in manifest: 0`. It remained flagged as incomplete/requiring review.
 
 ## Direct commands (optional)
 

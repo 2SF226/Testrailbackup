@@ -11,14 +11,25 @@ from urllib.parse import urljoin, urlparse, urlunparse
 from testrail_common import API, IMAGE_RE, checksum, file_record, read_json, require_env, safe_filename, write_json
 
 CATEGORIES = ('Queue Management', 'Retail Entrance Traffic Count')
-# These two C2377 references were confirmed not to display as separate images in
-# TestRail. They are retained in the original case HTML and logged for review.
+# UUID references visually absent from the Steps section during case review.
+# These are *not* proven deleted: keep their source HTML and report them as
+# unresolved references. Do not silently treat them as downloaded evidence.
+# Only skip the known URLs when they occur in custom_steps. All other image
+# references, including those in custom_expected, are downloaded as usual.
 KNOWN_UNRESOLVED = {
     2377: {
         'e0c86a83-bd9a-4655-8b26-754d56dbf96f',
         'b6b7f399-13e3-4b53-b74d-369dcd0c618e',
-    }
+    },
+    2122: {'3ff01d22-a839-4684-a755-356203c6a542'},
+    2104: {
+        '9a5ca924-2336-4f82-b75a-1091b0aaf7c0',
+        'b7554046-f509-4fff-aee1-e0be2d06c4e8',
+    },
+    2068: {'2ed0f882-fe25-4dcf-95a3-bf3cc42d599f'},
+    2056: {'e4bbaa25-b712-40b3-92d7-d1df06389447'},
 }
+
 
 def verify_backup(root):
     """Offline integrity check; never modifies backup or TestRail."""
@@ -28,6 +39,7 @@ def verify_backup(root):
     if not manifest_path.is_file() or not index_path.is_file():
         raise SystemExit('Missing manifest.json or evidence_index.json')
     manifest, records = read_json(manifest_path), read_json(index_path)
+    unresolved = read_json(root / 'unresolved_embedded.json') if (root / 'unresolved_embedded.json').is_file() else []
     problems = []
     for rec in records:
         relative = rec.get('path', '')
@@ -45,6 +57,8 @@ def verify_backup(root):
     print(f'\nBACKUP VALIDATION: {root}')
     print(f'Files checked: {len(records)} | Integrity errors: {len(problems)}')
     print('Result-level evidence coverage:', manifest.get('result_attachment_coverage', 'unverified'))
+    print(f'Unresolved embedded references requiring review: {len(unresolved)}')
+    print(f'Download/API errors in manifest: {len(manifest.get("errors", []))}')
     for name, problem in problems[:30]:
         print(' ERROR:', name, problem)
     if len(problems) > 30:
@@ -52,6 +66,8 @@ def verify_backup(root):
     if problems:
         raise SystemExit(1)
     print('All indexed evidence files passed SHA256 verification.')
+    if unresolved or manifest.get('errors'):
+        print('WARNING: Integrity verified for indexed files ONLY; backup remains incomplete/requires review.')
 
 
 def write_error_csv(root, errors, cases, tests, results):
@@ -173,13 +189,17 @@ def scan_embedded(api, case, root, files, errors, seen, unresolved, case_attachm
                 if identity in seen: continue
                 seen.add(identity)
                 attachment_ref = id_match.group(1) if id_match else None
-                if attachment_ref in KNOWN_UNRESOLVED.get(int(case['id']), set()):
+                if (path == ['custom_steps'] and attachment_ref and
+                        attachment_ref.lower() in KNOWN_UNRESOLVED.get(int(case['id']), set())):
                     unresolved.append({
                         'case_id': case['id'], 'field_path': path,
                         'source_url': raw, 'normalized_url': normalized,
                         'attachment_reference': attachment_ref,
-                        'status': 'known_unresolved_not_visible_in_ui',
-                        'reason': 'Not displayed as a separate screenshot during manual C2377 review; original HTML preserved',
+                        'status': 'known_reference_not_visible_in_steps',
+                        'reason': ('Reference was observed in custom_steps HTML but no corresponding '
+                                   'image was visible in the Steps UI during manual review. '
+                                   'The link may be stale or inaccessible; image bytes are NOT '
+                                   'backed up. Original HTML is preserved.'),
                         'available_case_attachments': [
                             {'id': a.get('id'), 'filename': a.get('filename'), 'size': a.get('size')}
                             for a in case_attachments
@@ -350,20 +370,23 @@ def main():
     write_error_csv(root, errors, cases, tests, results)
     write_json(root / 'unresolved_embedded.json', unresolved)
     summary = evidence_summary(files)
+    known_review = sum(x.get('status') == 'known_reference_not_visible_in_steps' for x in unresolved)
+    download_failed = sum(x.get('status') == 'download_failed' for x in unresolved)
     coverage = 'unverified'  # TestRail's result attachment endpoint returned 404; no completeness claim.
     manifest = {'format_version': 2, 'created_at': datetime.datetime.now().astimezone().isoformat(),
                 'source_url': api.base, 'project_id': args.project, 'project_name': project.get('name'), 'selected_run_ids': sorted(selected_ids), 'selected_run_names': {str(r['id']): r.get('name') for r in selected},
                 'case_count': len(cases), 'run_count': len(selected), 'result_count': sum(map(len, results.values())),
-                'evidence_count': len(files), 'unresolved_embedded_count': len(unresolved), 'errors': errors, 'complete': not errors and not unresolved, 'result_attachment_api_supported': False, 'result_attachment_coverage': coverage,
+                'evidence_count': len(files), 'unresolved_embedded_count': len(unresolved), 'known_review_reference_count': known_review, 'embedded_download_failed_count': download_failed, 'errors': errors, 'complete': not errors and not unresolved, 'result_attachment_api_supported': False, 'result_attachment_coverage': coverage,
                 'result_attachment_links_count': len(result_attachment_links),
                 'evidence_summary': summary, 'integrity_verified': False,
                 'note': 'Result attachments collected via get_attachments_for_test; rich-text image links may require web-session authentication. Verify evidence before restoration. Original timestamps/authors retained in JSON.'}
     write_json(root / 'manifest.json', manifest)
     print('\nBACKUP:', root)
     print(f'Cases: {len(cases)} | Runs: {len(selected)} | Evidence: {len(files)} | Errors: {len(errors)}')
-    print(f'Known/unresolved embedded references: {len(unresolved)}')
+    print(f'Embedded references needing review: {len(unresolved)} (visually absent in Steps: {known_review}; failed downloads: {download_failed})')
     if errors or unresolved:
         print('WARNING: BACKUP REQUIRES REVIEW. See manifest.json and unresolved_embedded.json.')
+        print('Unresolved references are NOT downloaded evidence and are not included in evidence_count.')
     else:
         print('No download/API errors or unresolved embedded references recorded.')
     print('Evidence by type:', summary['by_extension'])

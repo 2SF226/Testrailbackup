@@ -1,7 +1,7 @@
 """Copy a TestRail run into a NEW Untested cycle in a chosen destination project.
 
 Same project: rerun_run (existing cases reused). Different project: clone selected
-cases and required sections, then create a clean run (no historical results).
+cases and required sections IN SOURCE DISPLAY ORDER, then create a clean run.
 No automatic retries after writes. Case attachments are NOT migrated cross-project.
 """
 import argparse
@@ -110,7 +110,10 @@ def main():
         raise SystemExit('Cancelled; no changes made.')
     idmap={'source_project':pid,'source_run':old,'destination_project':did,
            'destination_run':None,'suite':None,'sections':{},'cases':{},'state':'started'}
-    report=Path.cwd()/f'copy_run_P{pid}_R{old}_to_P{did}_{suffix}.json'
+    # Keep generated reports outside the Git repository.
+    report_dir = Path(r'C:\TR\Logs\CopyRun')
+    report_dir.mkdir(parents=True, exist_ok=True)
+    report = report_dir / f'copy_run_P{pid}_R{old}_to_P{did}_{suffix}.json'
     def save(): report.write_text(json.dumps(idmap,indent=2),encoding='utf-8')
     save()
     try:
@@ -126,24 +129,72 @@ def main():
                 new_suite=api.post(f'add_suite/{did}',{'name':f"{source_suite['name']} [Retest {suffix}]",
                                                     'description':source_suite.get('description') or ''})
                 suite_id=int(new_suite['id']);idmap['suite']=suite_id;save()
+            # Recreate section hierarchy in source display order. Iterating over
+            # a set, as V3 did, makes TestRail assign unpredictable display_order.
             pending=set(required)
+            creation_order=[]
             while pending:
-                progressed=False
-                for sid in list(pending):
+                ready=[sid for sid in pending
+                       if not sections[sid].get('parent_id')
+                       or int(sections[sid]['parent_id']) in idmap['sections']]
+                if not ready:
+                    raise RuntimeError('Could not map source sections.')
+                # Root/child sibling order is controlled by source display_order.
+                # Parent-first ensures children cannot be created prematurely.
+                ready.sort(key=lambda sid:(int(sections[sid].get('display_order') or 0),sid))
+                for sid in ready:
                     sec=sections[sid];parent=int(sec.get('parent_id') or 0)
-                    if parent and parent not in idmap['sections']:continue
                     data={'name':sec['name'],'description':sec.get('description') or ''}
                     if parent:data['parent_id']=idmap['sections'][parent]
                     if suite_id:data['suite_id']=suite_id
                     made=api.post(f'add_section/{did}',data)
-                    idmap['sections'][sid]=int(made['id']);pending.remove(sid);progressed=True;save()
-                if not progressed:raise RuntimeError('Could not map source sections.')
-            for t in tests:
+                    idmap['sections'][sid]=int(made['id'])
+                    creation_order.append(sid)
+                    pending.remove(sid);save()
+            # Explicitly order every sibling group using the supported API.
+            # Moving sections affects only the newly created destination suite.
+            from collections import defaultdict
+            siblings=defaultdict(list)
+            for sid in creation_order:
+                parent=int(sections[sid].get('parent_id') or 0)
+                siblings[parent].append(sid)
+            for parent, group in siblings.items():
+                group.sort(key=lambda sid:(int(sections[sid].get('display_order') or 0),sid))
+                previous=None
+                for sid in group:
+                    payload={'parent_id':idmap['sections'].get(parent) if parent else None,
+                             'after_id':previous}
+                    api.post(f'move_section/{idmap["sections"][sid]}',payload)
+                    previous=idmap['sections'][sid]
+            print(f'Section order restored for {len(creation_order)} sections.')
+            # Case creation order within each section follows source case order.
+            # get_tests may return cases in test-result order instead.
+            ordered_tests=sorted(tests,key=lambda t:(
+                int(sections[int(source_cases[int(t['case_id'])]['section_id'])].get('display_order') or 0),
+                int(source_cases[int(t['case_id'])].get('display_order') or 0),
+                int(t['case_id'])))
+            for t in ordered_tests:
                 cid=int(t['case_id']);c=source_cases[cid]
                 section=idmap['sections'][int(c['section_id'])]
                 made=api.post(f'add_case/{section}',case_payload(c))
                 idmap['cases'][cid]=int(made['id']);save()
                 print(f"Copied case {len(idmap['cases'])}/{len(tests)}: C{cid} -> C{made['id']}")
+            # Verify the copied section hierarchy and sibling ordering.
+            destination_sections=api.collection(
+                f'get_sections/{did}'+(f'&suite_id={suite_id}' if suite_id else ''), 'sections')
+            dest_by_id={int(x['id']):x for x in destination_sections}
+            for parent, group in siblings.items():
+                expected=[idmap['sections'][sid] for sid in sorted(
+                    group,key=lambda sid:(int(sections[sid].get('display_order') or 0),sid))]
+                parent_dest=idmap['sections'].get(parent) if parent else None
+                actual=sorted((x for x in dest_by_id.values()
+                               if int(x['id']) in expected),
+                              key=lambda x:int(x.get('display_order') or 0))
+                actual_ids=[int(x['id']) for x in actual]
+                if expected != actual_ids:
+                    raise RuntimeError(f'Section order mismatch under parent {parent_dest}: '
+                                       f'expected {expected}, got {actual_ids}')
+            print('Verified copied section display order.')
             expect=set(idmap['cases'].values())
             data={'name':name,'include_all':False,'case_ids':list(expect),
                   'description':(full.get('description') or '')+f'\nFresh copy of P{pid} R{old}'}

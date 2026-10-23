@@ -113,18 +113,18 @@ The restore creates new suites/sections as needed, cases, run(s), results (if se
 
 ### 4 — Copy a test run
 
-Option 4 creates a new **Untested** testing cycle, leaving the original run unchanged.
+Option 4 creates a new **Untested** testing cycle, leaving the original run unchanged. **Verified V4** also preserves section hierarchy and display order and creates cases in their source display order when copying across projects.
 
 1. Choose the source project by its displayed menu number.
 2. Choose the source test run.
 3. **Choose the destination project by its displayed number.** This can be the source project or another project, such as Sandbox.
 4. Enter a new run name, or press Enter for a suggested name.
 5. Review the case list, destination, and the warning about attachments. Enter **Y** only after checking the destination.
-6. The script verifies that the new run contains the intended cases and that every test is **Untested**. It saves a JSON mapping report in the repository folder.
+6. The script verifies that the new run contains the intended cases and that every test is **Untested**. It saves a JSON mapping report automatically in `C:\TR\Logs\CopyRun` (outside the Git repository). This report records source/destination IDs and can help recover from partial copies. **V4 verified:** cross-project copy preserves the original section order.
 
 **Same-project copy:** Uses TestRail's `rerun_run` endpoint. The new run references the existing test cases, including their Steps, Expected Result instructions, and case attachments. Old execution results, result comments, and result evidence are not copied.
 
-**Different-project copy:** Creates a new suite if needed, required sections, new cases, and a new run. It copies text fields such as Steps and Expected Result instructions, but **does not migrate case attachments, embedded image files, or old execution evidence**. Rich-text image links may not render in another project. Target project custom fields must be compatible; an API failure may leave a partial copy. The script records created IDs and stops if verification fails.
+**Different-project copy (verified V4):** Creates a new suite if needed, required sections, new cases, and a new run. It preserves the section hierarchy, sibling section display order, and case creation order within each section, and verifies the resulting section order. It copies text fields such as Steps and Expected Result instructions, but **does not migrate case attachments, embedded image files, or old execution evidence**. Rich-text image links may not render in another project. Target project custom fields must be compatible; an API failure may leave a partial copy. The script records created IDs in `C:\TR\Logs\CopyRun` and stops if verification fails. When copying across projects, visually check the section and case ordering in TestRail as well.
 
 **Example:** Choose P4 as the source, R15 as the source run, and P8 Sandbox as the destination to create a new clean testing cycle in Sandbox.
 
@@ -174,6 +174,10 @@ Prefer the interactive launcher for normal use.
 - Some TestRail API attachment ownership information is incomplete. Verify that CSV, MP4, and screenshots appear in the intended result sections after restoration.
 - Historical authors/timestamps cannot be recreated exactly. Some rich-text images may require checking or relinking.
 - Do not add credentials, raw backup data, exported evidence, or `.env` to Git.
+
+## Verified copy-run ordering
+
+In the October 2026 cross-project test, V3 placed **Camera firmware and application version** too low in the destination run. V4 changed section creation to follow source display order and verifies the copied sibling section order. The corrected ordering was confirmed in TestRail. No previous execution results or result evidence are copied into the new Untested cycle.
 
 ## GitHub publishing
 

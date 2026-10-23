@@ -32,7 +32,11 @@ def yes_no(message):
 
 
 def main():
-    action = choose('TESTRAIL', ['Backup', 'Restore preview', 'Restore apply'], lambda x: x)
+    action = choose('TESTRAIL', ['Backup', 'Restore preview', 'Restore apply', 'Copy a test run'], lambda x: x)
+    if action.startswith('Copy a test run'):
+        import testrail_copy_run
+        sys.argv = ['testrail_copy_run.py', '--apply']  # shows preview before Y/N confirmation
+        return testrail_copy_run.main()
     if action.startswith('Restore'):
         import testrail_restore_final
         sys.argv = ['testrail_restore_final.py'] + (['--apply'] if action == 'Restore apply' else [])

@@ -1,6 +1,6 @@
 # TestRail Backup & Restore
 
-Interactive Python tools for backing up TestRail test runs and restoring their cases, execution results, and evidence into another project.
+Interactive Python tools for backing up and restoring TestRail runs, plus copying an existing test run into a fresh, Untested testing cycle in a selected destination project.
 
 ## Verified workflow
 
@@ -34,7 +34,8 @@ This verifies the tested run, **not** every TestRail project configuration or th
 
 | File | Purpose |
 | --- | --- |
-| `testrail_interactive.py` | Numbered menu for backups, restore previews, and restores |
+| `testrail_interactive.py` | Numbered menu for backups, restores, and copying a test run |
+| `testrail_copy_run.py` | Create a fresh run with the same cases, without prior execution results |
 | `testrail_backup_final.py` | Download test metadata and evidence; verify local backups |
 | `testrail_restore_final.py` | Restore into a different project; preview is the default (verified V7) |
 | `testrail_common.py` | Shared TestRail API, JSON, and checksum helpers |
@@ -58,6 +59,7 @@ TESTRAIL:
   1. Backup
   2. Restore preview
   3. Restore apply
+  4. Copy a test run
 Select number (blank cancels):
 ```
 
@@ -109,6 +111,31 @@ The restore creates new suites/sections as needed, cases, run(s), results (if se
 
 **Do not run Apply twice on the same backup.** Review the mapping file and destination before any repeat attempt. Once completed, visually confirm that CSV, MP4, and screenshots appear in the corresponding result sections.
 
+### 4 — Copy a test run
+
+Option 4 creates a new **Untested** testing cycle, leaving the original run unchanged.
+
+1. Choose the source project by its displayed menu number.
+2. Choose the source test run.
+3. **Choose the destination project by its displayed number.** This can be the source project or another project, such as Sandbox.
+4. Enter a new run name, or press Enter for a suggested name.
+5. Review the case list, destination, and the warning about attachments. Enter **Y** only after checking the destination.
+6. The script verifies that the new run contains the intended cases and that every test is **Untested**. It saves a JSON mapping report in the repository folder.
+
+**Same-project copy:** Uses TestRail's `rerun_run` endpoint. The new run references the existing test cases, including their Steps, Expected Result instructions, and case attachments. Old execution results, result comments, and result evidence are not copied.
+
+**Different-project copy:** Creates a new suite if needed, required sections, new cases, and a new run. It copies text fields such as Steps and Expected Result instructions, but **does not migrate case attachments, embedded image files, or old execution evidence**. Rich-text image links may not render in another project. Target project custom fields must be compatible; an API failure may leave a partial copy. The script records created IDs and stops if verification fails.
+
+**Example:** Choose P4 as the source, R15 as the source run, and P8 Sandbox as the destination to create a new clean testing cycle in Sandbox.
+
+To preview without creating anything, you can run:
+
+```powershell
+py .\testrail_copy_run.py
+```
+
+The interactive menu's Option 4 enters the apply workflow but always requires a final `Y` confirmation before creating anything.
+
 ### Menu tips
 
 - `1`, `2`, `3`, etc. are **positions in the current menu**, not necessarily TestRail IDs. Read the label next to each number.
@@ -132,6 +159,8 @@ The verifier checks indexed evidence files against their recorded SHA256 checksu
 py .\testrail_backup_final.py --project 7 --runs 35
 py .\testrail_restore_final.py
 py .\testrail_restore_final.py --apply
+py .\testrail_copy_run.py             # preview
+py .\testrail_copy_run.py --apply     # create new run
 ```
 
 Prefer the interactive launcher for normal use.
@@ -151,7 +180,7 @@ Prefer the interactive launcher for normal use.
 ```powershell
 git status
 git check-ignore .env
-git add README.md testrail_interactive.py testrail_backup_final.py testrail_restore_final.py testrail_common.py requirements.txt .gitignore
+git add README.md testrail_interactive.py testrail_copy_run.py testrail_backup_final.py testrail_restore_final.py testrail_common.py requirements.txt .gitignore
 git commit -m "Document verified TestRail backup and restore workflow"
 git push -u origin main
 ```
